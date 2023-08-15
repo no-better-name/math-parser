@@ -1,5 +1,6 @@
 #include <stdio.h>
 
+#include "include/parse.h"
 #include "include/token.h"
 
 int token_print(const Token *token) {
@@ -43,7 +44,7 @@ int main(void) {
     char *eqn;
     scanf("%m[^\n]", &eqn);
 
-    TokenStack stack = generate_stack(eqn, kPushFront);
+    TokenStack stack = parse_expression(eqn);
     for (size_t index = 0; index < stack.len; ++index) {
         token_print(stack.base + index);
         putchar('\n');

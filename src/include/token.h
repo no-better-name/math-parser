@@ -4,23 +4,9 @@
 #include <stdlib.h>
 
 #define MAX_TOKEN_KINDS 7
+#define MAX_FUNCS 6
 
-extern const char *const funcs[6];        // cos ctg ln sin sqrt tan
-extern const char *const binary_ops[4];   // + - * /
-extern const char *const unary_ops[1];    // -
-extern const char *const identifiers[1];  // x
-extern const char *const parens[2];
-extern const size_t max_func_len;
-
-extern const char *(*read_token_kind[MAX_TOKEN_KINDS])(const char *);
-
-const char *read_literal(const char *str);
-const char *read_func(const char *str);
-const char *read_binary(const char *ch);
-const char *read_unary(const char *ch);
-const char *read_id(const char *ch);
-const char *read_left_paren(const char *ch);
-const char *read_right_paren(const char *ch);
+extern const char *const funcs[MAX_FUNCS];        // cos ctg ln sin sqrt tan
 
 enum {
     kTokenLiteral = 0x01,
@@ -52,12 +38,42 @@ enum {
     kPushFront,
 };
 
+enum {
+    kFuncCos = 0,
+    kFuncCtg,
+    kFuncLn,
+    kFuncSin,
+    kFuncSqrt,
+    kFuncTan,
+};
+
 typedef struct {
     int kind;
-    const char *base;
+    union {
+        struct {
+            size_t a, b;
+        } __bits;
+        struct {
+            double val;
+            size_t len;
+        };
+        char id;
+        char op;
+        int func;
+    };
 } Token;
 
 Token read_next_token(const char *base);
+
+Token read_literal(const char *str);
+Token read_func(const char *str);
+Token read_binary(const char *ch);
+Token read_unary(const char *ch);
+Token read_id(const char *ch);
+Token read_paren_left(const char *ch);
+Token read_paren_right(const char *ch);
+
+extern Token (*const read_token_kind[MAX_TOKEN_KINDS])(const char *);
 
 typedef struct {
     Token *base;

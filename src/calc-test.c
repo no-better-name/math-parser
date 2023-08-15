@@ -1,5 +1,7 @@
 #include <stdio.h>
 
+#include "include/calc.h"
+#include "include/parse.h"
 #include "include/token.h"
 
 int token_print(const Token *token) {
@@ -41,14 +43,14 @@ int token_print(const Token *token) {
 
 int main(void) {
     char *eqn;
+    double x = 1;
     scanf("%m[^\n]", &eqn);
 
-    TokenStack stack = generate_stack(eqn, kPushFront);
-    for (size_t index = 0; index < stack.len; ++index) {
-        token_print(stack.base + index);
+    Token result = calculate_expression(eqn, x);
+    if (result.kind != kTokenInvalid) {
+        token_print(&result);
         putchar('\n');
     }
 
-    free(stack.base);
     free(eqn);
 }

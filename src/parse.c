@@ -1,9 +1,10 @@
 #include "include/parse.h"
+#include "include/token.h"
 
 int precedence(const Token *token) {
     if (token->kind == kTokenBinaryOperator) {
-        if (*token->base == '+' || *token->base == '-') return 0;
-        if (*token->base == '*' || *token->base == '/') return 1;
+        if (token->op == '+' || token->op == '-') return 0;
+        if (token->op == '*' || token->op == '/') return 1;
     }
 
     if (token->kind == kTokenUnaryOperator) return 2;
@@ -16,59 +17,57 @@ TokenStack parse_expression(const char *eqn) {
     TokenStack tokens = generate_stack(eqn, kPushFront);
     TokenStack output = {.base = NULL, .len = 0};
     TokenStack operators = {.base = NULL, .len = 0};
-    if (pop_front(&tokens).kind & kTokenInvalid) return output;
+    if (tokens.len && (peek_front(&tokens)->kind & kTokenInvalid)) {
+        push_back(&output, pop_front(&tokens));
+        token_stack_free(&tokens);
+        return output;
+    }
+    if (tokens.len && (peek_front(&tokens)->kind & kTokenEOF)) pop_front(&tokens);
 
     while (tokens.len) {
         Token token = pop_back(&tokens);
-        if (token.kind == kTokenLiteral || token.kind == kTokenIdentifier) {
-            push_front(&output, token);
-            continue;
-        }
+        switch (token.kind) {
+            case kTokenLiteral:
+            case kTokenIdentifier:
+                push_front(&output, token);
+                break;
+            case kTokenFunction:
+            case kTokenLeftParenthesis:
+                push_front(&operators, token);
+                break;
+            case kTokenUnaryOperator:
+            case kTokenBinaryOperator:
+                while (operators.len && peek_front(&operators)->kind != kTokenLeftParenthesis
+                        && (precedence(peek_front(&operators)) > precedence(&token)
+                            || (precedence(peek_front(&operators)) == precedence(&token) && is_left_associative(&token)))) {
+                    push_front(&output, pop_front(&operators));
+                }
+                push_front(&operators, token);
+                break;
+            case kTokenRightParenthesis:
+                while (operators.len && peek_front(&operators)->kind != kTokenLeftParenthesis) {
+                    push_front(&output, pop_front(&operators));
+                }
 
-        if (token.kind == kTokenFunction) {
-            push_front(&operators, token);
-            continue;
-        }
+                if (!operators.len) {
+                    token_stack_free(&tokens);
+                    token_stack_free(&output);
+                    token_stack_free(&operators);
 
-        if (token.kind & (kTokenBinaryOperator | kTokenUnaryOperator)) {
-            while (operators.len && peek_front(&operators)->kind != kTokenLeftParenthesis
-                    && (precedence(peek_front(&operators)) > precedence(&token)
-                        || (precedence(peek_front(&operators)) == precedence(&token) && is_left_associative(&token)))) {
-                push_front(&output, pop_front(&operators));
-            }
-            push_front(&operators, token);
-            continue;
-        }
+                    token.kind = kTokenInvalid;
+                    token.__bits.a = 0ULL;
+                    token.__bits.b = 0ULL;
 
-        if (token.kind == kTokenLeftParenthesis) {
-            push_front(&operators, token);
-            continue;
-        }
+                    push_back(&output, token);
 
-        if (token.kind == kTokenRightParenthesis) {
-            while (operators.len && peek_front(&operators)->kind != kTokenLeftParenthesis) {
-                push_front(&output, pop_front(&operators));
-            }
+                    return output;
+                }
+                pop_front(&operators);
 
-            if (!operators.len) {
-                token_stack_free(&tokens);
-                token_stack_free(&output);
-                token_stack_free(&operators);
-
-                token.kind = kTokenEOF;
-                token.base = NULL;
-
-                push_back(&output, token);
-
-                return output;
-            }
-            pop_front(&operators);
-
-            if (operators.len && peek_front(&operators)->kind == kTokenFunction) {
-                push_front(&output, pop_front(&operators));
-            }
-
-            continue;
+                if (operators.len && peek_front(&operators)->kind == kTokenFunction) {
+                    push_front(&output, pop_front(&operators));
+                }
+                break;
         }
     }
 
@@ -78,9 +77,10 @@ TokenStack parse_expression(const char *eqn) {
             token_stack_free(&output);
             token_stack_free(&operators);
 
-            Token token = {.kind = kTokenEOF, .base = NULL};
+            Token token = {.kind = kTokenInvalid};
             push_back(&output, token);
 
+            return output;
         }
 
         push_front(&output, pop_front(&operators));

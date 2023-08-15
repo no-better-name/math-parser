@@ -3,99 +3,81 @@
 
 #include "include/calc.h"
 #include "include/parse.h"
+#include "include/token.h"
 
-double calculate_expression(const char *eqn, double x) {
-    double *arr = NULL;
-    size_t len = 0;
-    void *tmp;
-    TokenStack parse = parse_expression(eqn);
-
-    while (parse.len) {
-        Token token = pop_back(&parse);
-        if (token.kind == kTokenLiteral) {
-            tmp = realloc(arr, (len + 1) * sizeof(double));
-            if (!tmp) {
-                token_stack_free(&parse);
-                if (token.kind == kTokenLiteral) free((void *)token.base);
-                return 0;
-            }
-
-            arr = tmp;
-            sscanf(token.base, "%lf", arr + len++);
-            continue;
-        }
-
-        if (token.kind == kTokenIdentifier) {
-            tmp = realloc(arr, (len + 1) * sizeof(double));
-            if (!tmp) {
-                token_stack_free(&parse);
-                if (token.kind == kTokenLiteral) free((void *)token.base);
-                return 0;
-            }
-
-            arr = tmp;
-            arr[len++] = x;
-            continue;
-        }
-
-        if (token.kind == kTokenUnaryOperator) {
-            arr[len - 1] = -arr[len - 1];
-            continue;
-        }
-
-        if (token.kind == kTokenBinaryOperator) {
-            switch (*token.base) {
-                case '+':
-                    arr[len - 2] += arr[len - 1];
-                    arr = realloc(arr, (--len) * sizeof(double));
-                    break;
-
-                case '-':
-                    arr[len - 2] -= arr[len - 1];
-                    arr = realloc(arr, (--len) * sizeof(double));
-                    break;
-
-                case '*':
-                    arr[len - 2] *= arr[len - 1];
-                    arr = realloc(arr, (--len) * sizeof(double));
-                    break;
-
-                case '/':
-                    arr[len - 2] /= arr[len - 1];
-                    arr = realloc(arr, (--len) * sizeof(double));
-                    break;
-            }
-        }
-
-        if (token.kind == kTokenFunction) {
-            if (token.base == funcs[0]) {
-                arr[len - 1] = cos(arr[len - 1]);
-            }
-
-            if (token.base == funcs[1]) {
-                arr[len - 1] = 1.0 / tan(arr[len - 1]);
-            }
-
-            if (token.base == funcs[2]) {
-                arr[len - 1] = log(arr[len - 1]);
-            }
-
-            if (token.base == funcs[3]) {
-                arr[len - 1] = sin(arr[len - 1]);
-            }
-
-            if (token.base == funcs[4]) {
-                arr[len - 1] = sqrt(arr[len - 1]);
-            }
-
-            if (token.base == funcs[5]) {
-                arr[len - 1] = tan(arr[len - 1]);
-            }
-            continue;
+Token calculate_expression(const char *eqn, double x) {
+    TokenStack stack = parse_expression(eqn);
+    TokenStack output = {.base = NULL, .len = 0};
+    if (stack.len && (peek_back(&stack)->kind & kTokenInvalid)) {
+        token_stack_free(&stack);
+        Token token = {.kind = kTokenInvalid};
+        return token;
+    }
+    while (stack.len) {
+        Token token = pop_back(&stack);
+        Token operand;
+        switch (token.kind) {
+            case kTokenIdentifier:
+                token.kind = kTokenLiteral;
+                token.val = x;
+            case kTokenLiteral:
+                push_back(&output, token);
+                break;
+            case kTokenUnaryOperator:
+                peek_back(&output)->val = -peek_back(&output)->val;
+                break;
+            case kTokenBinaryOperator:
+                operand = pop_back(&output);
+                switch (token.op) {
+                    case '+':
+                        peek_back(&output)->val += operand.val;
+                        break;
+                    case '-':
+                        peek_back(&output)->val -= operand.val;
+                        break;
+                    case '*':
+                        peek_back(&output)->val *= operand.val;
+                        break;
+                    case '/':
+                        peek_back(&output)->val /= operand.val;
+                        break;
+                }
+                break;
+            case kTokenFunction:
+                switch (token.func) {
+                    case kFuncCos:
+                        peek_back(&output)->val = cos(peek_back(&output)->val);
+                        break;
+                    case kFuncCtg:
+                        peek_back(&output)->val = 1.0 / tan(peek_back(&output)->val);
+                        break;
+                    case kFuncLn:
+                        peek_back(&output)->val = log(peek_back(&output)->val);
+                        break;
+                    case kFuncSin:
+                        peek_back(&output)->val = sin(peek_back(&output)->val);
+                        break;
+                    case kFuncSqrt:
+                        peek_back(&output)->val = sqrt(peek_back(&output)->val);
+                        break;
+                    case kFuncTan:
+                        peek_back(&output)->val = tan(peek_back(&output)->val);
+                        break;
+                }
+                break;
+            case kTokenInvalid:
+                token_stack_free(&stack);
+                return token;
         }
     }
 
-    double result = arr[0];
-    free(arr);
-    return result;
+    if (stack.len) {
+        token_stack_free(&stack);
+        Token token = {.kind = kTokenInvalid};
+        return token;
+    }
+
+    Token token = *peek_back(&output);
+    token_stack_free(&output);
+    return token;
 }

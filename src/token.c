@@ -1,124 +1,151 @@
 #include "include/token.h"
+#include "include/string_utils.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "include/string_utils.h"
+const char *const funcs[MAX_FUNCS] = {"cos", "ctg", "ln", "sin", "sqrt", "tan"};
 
-const char *const funcs[6] = {"cos", "ctg", "ln", "sin", "sqrt", "tan"};
-const char *const binary_ops[4] = {"+", "-", "*", "/"};
-const char *const unary_ops[1] = {"-"};
-const char *const identifiers[1] = {"x"};
-const char *const parens[2] = {"(", ")"};
-const size_t max_func_len = 4;
-
-const char *(*read_token_kind[MAX_TOKEN_KINDS])(const char *) = {
-    read_literal, read_id, read_unary, read_binary, read_func, read_left_paren, read_right_paren};
-
-const char *read_literal(const char *str) {
-    if (!str || !is_digit(*str) || *str == '0') return NULL;
-
-    return scan_while(is_digit, str);
-}
-
-const char *read_func(const char *str) {
-    // cos ctg ln sin sqrt tan
-
-    for (size_t index = 0; index < sizeof(funcs) / sizeof(char *); ++index) {
-        if (!strncmp(str, funcs[index], strlen(funcs[index]))) return funcs[index];
-    }
-
-    return NULL;
-}
-
-const char *read_binary(const char *ch) {
-    if (!ch) return NULL;
-
-    if (*ch == '+') return binary_ops[0];
-    if (*ch == '-') return binary_ops[1];
-    if (*ch == '*') return binary_ops[2];
-    if (*ch == '/') return binary_ops[3];
-
-    return NULL;
-}
-
-const char *read_unary(const char *ch) {
-    if (!ch) return NULL;
-
-    if (*ch == '-') return unary_ops[0];
-
-    return NULL;
-}
-
-const char *read_id(const char *ch) {
-    if (!ch) return NULL;
-
-    if (*ch == 'x') return identifiers[0];
-
-    return NULL;
-}
-
-const char *read_left_paren(const char *ch) {
-    if (!ch) return NULL;
-
-    if (*ch == '(') return parens[0];
-
-    return NULL;
-}
-
-const char *read_right_paren(const char *ch) {
-    if (!ch) return NULL;
-
-    if (*ch == ')') return parens[1];
-
-    return NULL;
-}
+Token (*const read_token_kind[MAX_TOKEN_KINDS])(const char *) = {read_literal, read_id, read_unary, read_binary, read_func, read_paren_left, read_paren_right};
 
 Token read_next_token(const char *base) {
-    Token token = {.kind = kTokenEOF, .base = NULL};
-    static const char *str;
-    static int state, next_read = kTokenEOF;
-
+    Token token = {.kind = kTokenEOF};
+    static const char *eqn;
+    static int state_current, token_read = kTokenEOF;
     if (base) {
-        str = base;
-        state = kReadExpr;
+        eqn = base;
+        state_current = kReadExpr;
     }
 
-	if (!str) return token;
-    while (is_whitespace(*str)) ++str;
+    if (!eqn) return token;
 
-	if (!*str) {
-		if (!(next_read & kReadNonFuncOperandOrRightParen)) {
-			str = NULL;
-			token.kind = kTokenInvalid;
-		}
+    while (is_whitespace(*(eqn))) ++eqn;
+    if (!*eqn) {
+        if (token_read & (kReadOperationOrLeftParen | kReadFunc)) token.kind = kTokenInvalid;
+        eqn = NULL;
+        return token;
+    }
 
-		return token;
-	}
-
-    const char *next_contents = NULL;
-    next_read = kTokenLiteral;
-    for (size_t index = 0; index < MAX_TOKEN_KINDS; ++index) {
-        next_contents = read_token_kind[index](str);
-        if (next_contents && (state & next_read)) {
-            token.kind = next_read;
-            token.base = next_contents;
-            break;
+    token_read = kTokenLiteral;
+    size_t index = 0;
+    // for (; !(token_read & kTokenInvalid) || !(state_current & token_read) || (token = read_token_kind[index](eqn), token.kind == kTokenInvalid); ++index, token_read <<= 1);
+    while (token_read != kTokenInvalid) {
+        if (state_current & token_read) {
+            token = read_token_kind[index](eqn);
+            if (token.kind == token_read) break;
         }
 
-        next_read <<= 1;
+        token_read <<= 1;
+        ++index;
     }
 
-    if (next_read & kReadNonFuncOperandOrRightParen) state = kReadAfterNonFuncExpr;
-    if (next_read & kReadOperationOrLeftParen) state = kReadExpr;
-    if (next_read & kReadFunc) state = kTokenLeftParenthesis;
-
-    if (next_read & kTokenInvalid) {
-        str = NULL;
+    if (token_read & kTokenInvalid) {
         token.kind = kTokenInvalid;
-    } else {
-        str += strlen(token.base);
+        eqn = NULL;
+        return token;
     }
+
+    if (token.kind & kReadNonFuncOperandOrRightParen) state_current = kReadAfterNonFuncExpr;
+    if (token.kind & kReadOperationOrLeftParen) state_current = kReadExpr;
+    if (token.kind & kReadFunc) state_current = kTokenLeftParenthesis;
+
+    if (token.kind & (kReadOperationOrLeftParen | kTokenRightParenthesis | kTokenIdentifier)) {
+        ++eqn;
+    } else if (token.kind & kTokenFunction) {
+        eqn += strlen(funcs[token.func]);
+    } else {
+        eqn += token.len;
+    }
+
+    return token;
+}
+
+Token read_literal(const char *str) {
+    Token token = {.kind = kTokenInvalid};
+    if (!is_digit(*str)) return token;
+    int count = 0, scan_result;
+    double val;
+    scan_result = sscanf(str, "%lg%n", &val, &count);
+    if (scan_result == 1 && count) {
+        token.kind = kTokenLiteral;
+        token.val = val;
+        token.len = count;
+    }
+
+    return token;
+}
+
+Token read_func(const char *str) {
+    Token token = {.kind = kTokenInvalid};
+    for (size_t index = 0; index < MAX_FUNCS; ++index) {
+        if (!strncmp(str, funcs[index], strlen(funcs[index]))) {
+            token.kind = kTokenFunction;
+            token.func = index;
+        }
+    }
+
+    return token;
+}
+
+Token read_binary(const char *ch) {
+    Token token = {.kind = kTokenInvalid};
+    switch (*ch) {
+        case '-':
+        case '+':
+        case '/':
+        case '*':
+            token.kind = kTokenBinaryOperator;
+            token.op = *ch;
+            break;
+    }
+
+    return token;
+}
+
+Token read_unary(const char *ch) {
+    Token token = {.kind = kTokenInvalid};
+    switch (*ch) {
+        case '-':
+            token.kind = kTokenUnaryOperator;
+            token.op = *ch;
+            break;
+    }
+
+    return token;
+}
+
+Token read_id(const char *ch) {
+    Token token = {.kind = kTokenInvalid};
+    switch (*ch) {
+        case 'x':
+            token.kind = kTokenIdentifier;
+            token.id = *ch;
+            break;
+    }
+
+    return token;
+}
+
+Token read_paren_left(const char *ch) {
+    Token token = {.kind = kTokenInvalid};
+    switch (*ch) {
+        case '(':
+            token.kind = kTokenLeftParenthesis;
+            break;
+    }
+
+    return token;
+}
+
+Token read_paren_right(const char *ch) {
+    Token token = {.kind = kTokenInvalid};
+    switch (*ch) {
+        case ')':
+            token.kind = kTokenRightParenthesis;
+            break;
+    }
+
     return token;
 }
 
@@ -148,7 +175,7 @@ Token *push_front(TokenStack *stack, Token token) {
 }
 
 Token pop_back(TokenStack *stack) {
-    Token invalid = {.kind = kTokenInvalid, .base = NULL};
+    Token invalid = {.kind = kTokenInvalid};
     if (!stack || !stack->base) return invalid;
 
     Token elem = stack->base[stack->len - 1];
@@ -164,7 +191,7 @@ Token pop_back(TokenStack *stack) {
 }
 
 Token pop_front(TokenStack *stack) {
-    Token invalid = {.kind = kTokenInvalid, .base = NULL};
+    Token invalid = {.kind = kTokenInvalid};
     if (!stack || !stack->base) return invalid;
 
     Token elem = stack->base[0];
@@ -180,30 +207,45 @@ Token pop_front(TokenStack *stack) {
     return elem;
 }
 
-void token_stack_free(TokenStack *stack) {
-    while (stack->len) {
-        Token token = pop_back(stack);
-        if (token.kind == kTokenLiteral) free((void *)token.base);
-    }
-}
-
 TokenStack generate_stack(const char *eqn, int direction) {
     TokenStack stack = {.base = NULL, .len = 0};
+    Token token;
+    void *ptr = NULL;
 
     switch (direction) {
         case kPushBack:
-            push_back(&stack, read_next_token(eqn));
-            while (stack.base[stack.len - 1].kind != kTokenEOF
-                    || stack.base[stack.len - 1].kind != kTokenInvalid) {
-                push_back(&stack, read_next_token(NULL));
+            token = read_next_token(eqn);
+            while (token.kind && token.kind != kTokenInvalid) {
+                ptr = push_back(&stack, token);
+                if (!ptr) {
+                    if (stack.base) free(stack.base);
+                    return stack;
+                }
+                token = read_next_token(NULL);
+            }
+
+            ptr = push_back(&stack, token);
+            if (!ptr) {
+                if (stack.base) free(stack.base);
+                return stack;
             }
             break;
 
         case kPushFront:
-            push_front(&stack, read_next_token(eqn));
-            while (stack.base[0].kind != kTokenEOF
-                    && stack.base[0].kind != kTokenInvalid) {
-                push_front(&stack, read_next_token(NULL));
+            token = read_next_token(eqn);
+            while (token.kind && token.kind != kTokenInvalid) {
+                ptr = push_front(&stack, token);
+                if (!ptr) {
+                    if (stack.base) free(stack.base);
+                    return stack;
+                }
+                token = read_next_token(NULL);
+            }
+
+            ptr = push_front(&stack, token);
+            if (!ptr) {
+                if (stack.base) free(stack.base);
+                return stack;
             }
             break;
     }
@@ -212,13 +254,25 @@ TokenStack generate_stack(const char *eqn, int direction) {
 }
 
 Token *peek_back(const TokenStack *stack) {
+    if (!stack || !stack->base) return NULL;
     return stack->base + stack->len - 1;
 }
 
 Token *peek_front(const TokenStack *stack) {
+    if (!stack || !stack->base) return NULL;
     return stack->base;
 }
 
+void token_stack_free(TokenStack *stack) {
+    if (stack->base) free(stack->base);
+    stack->base = NULL;
+    stack->len = 0;
+}
+
 int is_left_associative(const Token* token) {
-    return *token->base == '-' || *token->base == '/';
+    if (token->kind == kTokenBinaryOperator) {
+        return token->op == '-' || token->op == '/';
+    }
+
+    return 0;
 }
